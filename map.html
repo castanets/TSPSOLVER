@@ -24,17 +24,20 @@
         }
 
         // [C#에서 호출할 함수] 위경도 좌표를 받아 마커를 찍음
-        function addMarker(lat, lng, index) {
-            var marker = new naver.maps.Marker({
-                position: new naver.maps.LatLng(lat, lng),
-                map: map,
-                title: "위치 " + index // 마우스 올리면 뜨는 텍스트
-            });
-            markers.push(marker);
-            
-            // 마커가 추가되면 지도의 중심을 그리로 조금 이동 (선택사항)
-            map.setCenter(new naver.maps.LatLng(lat, lng));
-        }
+        function addMarker(lat, lng, index, address) {
+    var marker = new naver.maps.Marker({
+        position: new naver.maps.LatLng(lat, lng),
+        map: map,
+        // 마우스 올리면 뜨는 텍스트 설정
+        title: "[방문순서 " + index + "] " + address 
+    });
+    markers.push(marker);
+    
+    // 첫 번째 방문지(출발지)라면 지도의 중심으로 설정
+    if (index === 1) {
+        map.setCenter(new naver.maps.LatLng(lat, lng));
+    }
+}
 
         // [C#에서 호출할 함수] 모든 마커 삭제
         function clearAllMarkers() {
@@ -48,4 +51,5 @@
     </script>
 </body>
 </html>
+
 
