@@ -1,0 +1,34 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Naver Map for WinForms</title>
+    <script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=0xpjl9940x"></script>
+    
+    <style>
+        /* 지도가 화면에 꽉 차게 설정 */
+        body, html { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+        #map { width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <script>
+        var map = null;
+
+        // 지도 초기화 함수
+        function initMap() {
+            var mapOptions = {
+                center: new naver.maps.LatLng(37.5665, 126.9780), // 서울 시청 기본 좌표
+                zoom: 15
+            };
+            
+            map = new naver.maps.Map('map', mapOptions);
+        }
+
+        // 페이지 로드 시 즉시 지도 생성
+        initMap();
+    </script>
+</body>
+</html>
