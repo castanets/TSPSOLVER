@@ -1,12 +1,10 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Naver Map for WinForms</title>
+    <title>Map</title>
     <script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=0xpjl9940x"></script>
-    
     <style>
-        /* 지도가 화면에 꽉 차게 설정 */
         body, html { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
         #map { width: 100%; height: 100%; }
     </style>
@@ -16,21 +14,37 @@
 
     <script>
         var map = null;
+        var markers = []; // 마커들을 담아둘 배열
 
-        // 지도 초기화 함수
         function initMap() {
-            var mapOptions = {
-                center: new naver.maps.LatLng(37.057202, 127.048285), // 기본좌표
-                zoom: 15
-            };
-            
-            map = new naver.maps.Map('map', mapOptions);
+            map = new naver.maps.Map('map', {
+                center: new naver.maps.LatLng(37.5665, 126.9780),
+                zoom: 12
+            });
         }
 
-        // 페이지 로드 시 즉시 지도 생성
+        // [C#에서 호출할 함수] 위경도 좌표를 받아 마커를 찍음
+        function addMarker(lat, lng, index) {
+            var marker = new naver.maps.Marker({
+                position: new naver.maps.LatLng(lat, lng),
+                map: map,
+                title: "위치 " + index // 마우스 올리면 뜨는 텍스트
+            });
+            markers.push(marker);
+            
+            // 마커가 추가되면 지도의 중심을 그리로 조금 이동 (선택사항)
+            map.setCenter(new naver.maps.LatLng(lat, lng));
+        }
+
+        // [C#에서 호출할 함수] 모든 마커 삭제
+        function clearAllMarkers() {
+            for (var i = 0; i < markers.length; i++) {
+                markers[i].setMap(null);
+            }
+            markers = [];
+        }
+
         initMap();
     </script>
 </body>
-
 </html>
-
