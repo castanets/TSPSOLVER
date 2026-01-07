@@ -7,6 +7,28 @@
     <style>
         body, html { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
         #map { width: 100%; height: 100%; }
+        
+        /* [추가] 마커 스타일 정의 */
+        .marker-pin {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: #FF0000;
+            border: 2px solid #FFFFFF;
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.5);
+            text-align: center;
+            line-height: 26px; /* 높이-보더두께 고려 */
+            color: white;
+            font-weight: bold;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .marker-pin:hover {
+            transform: scale(1.2); /* 마우스 올리면 살짝 커짐 */
+            z-index: 999;
+        }
     </style>
 </head>
 <body>
@@ -14,7 +36,7 @@
 
     <script>
         var map = null;
-        var markers = []; // 마커들을 담아둘 배열
+        var markers = []; 
 
         function initMap() {
             map = new naver.maps.Map('map', {
@@ -23,23 +45,41 @@
             });
         }
 
-        // [C#에서 호출할 함수] 위경도 좌표를 받아 마커를 찍음
-        function addMarker(lat, lng, index, address) {
-    var marker = new naver.maps.Marker({
-        position: new naver.maps.LatLng(lat, lng),
-        map: map,
-        // 마우스 올리면 뜨는 텍스트 설정
-        title: "[방문순서 " + index + "] " + address 
-    });
-    markers.push(marker);
-    
-    // 첫 번째 방문지(출발지)라면 지도의 중심으로 설정
-    if (index === 1) {
-        map.setCenter(new naver.maps.LatLng(lat, lng));
-    }
-}
+        // [변경] gridIndex: 그리드 행 번호 (0부터 시작), tooltip: 주소 텍스트
+        function addMarker(lat, lng, gridIndex, tooltip) {
+            
+            // 화면에 표시할 번호 (1부터 시작)
+            var displayNum = gridIndex + 1;
 
-        // [C#에서 호출할 함수] 모든 마커 삭제
+            // HTML 마커 생성
+            var contentHtml = '<div class="marker-pin" title="' + tooltip + '">' + displayNum + '</div>';
+
+            var marker = new naver.maps.Marker({
+                position: new naver.maps.LatLng(lat, lng),
+                map: map,
+                icon: {
+                    content: contentHtml,
+                    size: new naver.maps.Size(30, 30),
+                    anchor: new naver.maps.Point(15, 15) // 마커의 중심점을 좌표에 맞춤
+                }
+            });
+
+            // [추가] 마커 클릭 이벤트 -> C#으로 인덱스 전송
+            naver.maps.Event.addListener(marker, 'click', function(e) {
+                // WebView2를 통해 C#으로 메시지 전송 (문자열 형태)
+                if (window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage(gridIndex.toString());
+                }
+            });
+
+            markers.push(marker);
+            
+            // 첫 번째 마커라면 지도 중심으로 이동
+            if (markers.length === 1) {
+                map.setCenter(new naver.maps.LatLng(lat, lng));
+            }
+        }
+
         function clearAllMarkers() {
             for (var i = 0; i < markers.length; i++) {
                 markers[i].setMap(null);
@@ -51,5 +91,3 @@
     </script>
 </body>
 </html>
-
-
