@@ -251,7 +251,19 @@
             _createMarkerInternal(lat, lng, gridIndex, tooltip);
         }
 
-        initMap();
-    </script>
+        // [신규] 지도에서 Delete 키 입력 감지 -> C#으로 전송
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Delete') {
+            if (window.chrome && window.chrome.webview) {
+                // 선택된 마커가 있을 때만 요청을 보낼 수도 있으나, 
+                // C#에서 그리드 선택 여부를 판단하는 것이 더 안전함
+                window.chrome.webview.postMessage("deletePressed");
+            }
+        }
+    });
+
+    initMap();
+</script>
 </body>
 </html>
+
