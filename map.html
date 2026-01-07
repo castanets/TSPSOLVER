@@ -8,7 +8,6 @@
         body, html { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
         #map { width: 100%; height: 100%; }
         
-        /* 마커 스타일 (기존 유지) */
         .marker-pin {
             width: 30px;
             height: 30px;
@@ -22,11 +21,15 @@
             font-weight: bold;
             font-family: Arial, sans-serif;
             font-size: 14px;
-            cursor: pointer;
+            cursor: pointer; /* 손가락 모양 */
             transition: transform 0.1s;
         }
-        .marker-pin:hover {
+        /* 드래그 중일 때 시각적 효과 */
+        .marker-pin:active {
             transform: scale(1.2);
+            background: #FF6600; /* 주황색으로 변경 */
+        }
+        .marker-pin:hover {
             z-index: 999;
         }
     </style>
@@ -37,7 +40,10 @@
     <script>
         var map = null;
         var markers = []; 
-        var polylines = []; // [추가] 그려진 선들을 관리할 배열
+        var polylines = [];
+        
+        // 드래그 로직용 변수
+        var dragStartPos = null; // 원래 위치 기억용
 
         function initMap() {
             map = new naver.maps.Map('map', {
@@ -53,6 +59,7 @@
             var marker = new naver.maps.Marker({
                 position: new naver.maps.LatLng(lat, lng),
                 map: map,
+                draggable: true, // [중요] 드래그 가능하게 설정
                 icon: {
                     content: contentHtml,
                     size: new naver.maps.Size(30, 30),
@@ -60,9 +67,67 @@
                 }
             });
 
+            // 추가 정보를 마커 객체에 심어둡니다 (인덱스 식별용)
+            marker.set('gridIndex', gridIndex);
+
+            // 1. 클릭 시 그리드 선택 (기존 기능)
             naver.maps.Event.addListener(marker, 'click', function(e) {
                 if (window.chrome && window.chrome.webview) {
-                    window.chrome.webview.postMessage(gridIndex.toString());
+                    window.chrome.webview.postMessage("select:" + gridIndex);
+                }
+            });
+
+            // 2. 드래그 시작: 원래 위치 저장 (취소되거나 이동 후 복귀를 위해)
+            naver.maps.Event.addListener(marker, 'dragstart', function(e) {
+                dragStartPos = marker.getPosition();
+                // 드래그 중인 마커를 맨 위로 올림
+                marker.setZIndex(10000);
+            });
+
+            // 3. 드래그 종료: 충돌 감지 로직
+            naver.maps.Event.addListener(marker, 'dragend', function(e) {
+                var droppedCoord = e.coord; // 드롭된 위치 (위경도)
+                var fromIndex = marker.get('gridIndex');
+                var targetIndex = -1;
+
+                // 화면 좌표계로 변환 (픽셀 단위 거리 계산을 위해)
+                var projection = map.getProjection();
+                var droppedPoint = projection.fromCoordToOffset(droppedCoord);
+
+                // 다른 모든 마커와의 거리 검사
+                for (var i = 0; i < markers.length; i++) {
+                    var otherMarker = markers[i];
+                    var otherIndex = otherMarker.get('gridIndex');
+
+                    // 자기 자신은 제외
+                    if (fromIndex === otherIndex) continue;
+
+                    // 대상 마커의 화면 위치
+                    var otherPoint = projection.fromCoordToOffset(otherMarker.getPosition());
+
+                    // 거리 계산 (피타고라스)
+                    var dist = Math.sqrt(
+                        Math.pow(droppedPoint.x - otherPoint.x, 2) + 
+                        Math.pow(droppedPoint.y - otherPoint.y, 2)
+                    );
+
+                    // 40픽셀 이내면 "올려놓았다"고 판단
+                    if (dist < 40) {
+                        targetIndex = otherIndex;
+                        break;
+                    }
+                }
+
+                // 시각적으로는 일단 원래 위치로 되돌림 (데이터 갱신 후 다시 그려질 것이므로)
+                marker.setPosition(dragStartPos);
+                marker.setZIndex(100); // Z-Index 초기화
+
+                if (targetIndex !== -1) {
+                    // 유효한 타겟 위에 드롭했으면 C#으로 요청 전송
+                    if (window.chrome && window.chrome.webview) {
+                        // 형식: "reorder:출발인덱스:도착인덱스"
+                        window.chrome.webview.postMessage("reorder:" + fromIndex + ":" + targetIndex);
+                    }
                 }
             });
 
@@ -73,44 +138,38 @@
             }
         }
 
-        // [신규 기능] 마커들을 순서대로 잇는 빨간 화살표 선 그리기
         function drawConnectors() {
-            // 기존 선 삭제
             for (var i = 0; i < polylines.length; i++) {
                 polylines[i].setMap(null);
             }
             polylines = [];
 
-            // 마커가 2개 이상일 때만 연결
             if (markers.length < 2) return;
 
-            // 구간별로 선을 그립니다 (0->1, 1->2, 2->3 ...)
             for (var i = 0; i < markers.length - 1; i++) {
                 var start = markers[i].getPosition();
                 var end = markers[i + 1].getPosition();
 
                 var polyline = new naver.maps.Polyline({
                     map: map,
-                    path: [start, end],      // 시작점 -> 끝점
-                    strokeColor: '#FF0000',  // 빨간색
-                    strokeWeight: 4,         // 선 두께
-                    strokeOpacity: 0.8,      // 투명도
+                    path: [start, end],
+                    strokeColor: '#FF0000',
+                    strokeWeight: 4,
+                    strokeOpacity: 0.8,
                     strokeStyle: 'solid',    
-                    endIcon: naver.maps.PointingIcon.OPEN_ARROW, // 끝에 화살표
-                    endIconSize: 20          // 화살표 크기
+                    endIcon: naver.maps.PointingIcon.OPEN_ARROW,
+                    endIconSize: 20
                 });
 
                 polylines.push(polyline);
             }
         }
 
-        // [수정] 마커 지울 때 선도 같이 삭제
         function clearAllMarkers() {
             for (var i = 0; i < markers.length; i++) {
                 markers[i].setMap(null);
             }
             markers = [];
-
             for (var j = 0; j < polylines.length; j++) {
                 polylines[j].setMap(null);
             }
