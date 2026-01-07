@@ -1,159 +1,257 @@
-<script>
-    var map = null;
-    var markers = []; 
-    var polylines = [];
-    
-    // [변경] 단일 인덱스 -> 다중 인덱스 배열 관리
-    var selectedIndices = []; 
-
-    var dragStartPos = null;
-
-    function initMap() {
-        map = new naver.maps.Map('map', {
-            center: new naver.maps.LatLng(37.057202, 127.048285),
-            zoom: 12
-        });
-    }
-
-    function renderAllMarkers(dataList) {
-        clearAllMarkers();
-        for (var i = 0; i < dataList.length; i++) {
-            var data = dataList[i];
-            _createMarkerInternal(data.lat, data.lng, data.index, data.tooltip);
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Map</title>
+    <script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=0xpjl9940x"></script>
+    <style>
+        body, html { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+        #map { width: 100%; height: 100%; }
+        
+        /* 마커 공통 스타일 */
+        .marker-pin {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 2px solid #FFFFFF;
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.5);
+            text-align: center;
+            line-height: 26px;
+            color: white;
+            font-weight: bold;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.2s;
         }
-        drawConnectors();
-        updateMarkerVisuals(); 
-    }
 
-    // [신규] C#에서 선택된 인덱스 리스트를 받아옴 (예: [0, 2, 5])
-    function setMarkerSelectionList(indices) {
-        selectedIndices = indices; // 배열 교체
-        updateMarkerVisuals();
-    }
+        /* 상태별 색상 클래스 */
+        .bg-red { background: #FF0000; }     /* 기본 (빨강) */
+        .bg-yellow { background: #FFD700; color: black; } /* 시작점 (노랑) */
+        .bg-green { background: #00AA00; }   /* 도착점 (초록) */
+        
+        /* 선택됨 (파랑) - 크기 확대 및 최상단 표시 */
+        .bg-blue { 
+            background: #0000FF; 
+            z-index: 9999 !important; 
+            transform: scale(1.1); 
+        }
 
-    // [변경] 마커 색상 업데이트 (배열 체크 방식)
-    function updateMarkerVisuals() {
-        var total = markers.length;
+        /* 클릭/드래그 시 효과 */
+        .marker-pin:active {
+            transform: scale(1.2);
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
 
-        for (var i = 0; i < total; i++) {
-            var marker = markers[i];
-            var iconContent = marker.getIcon().content;
-            
-            var newClass = "bg-red"; // 기본
+    <script>
+        var map = null;
+        var markers = []; 
+        var polylines = [];
+        
+        // 다중 선택된 마커의 인덱스들을 저장하는 배열
+        var selectedIndices = []; 
 
-            // [변경] 배열에 포함되어 있는지 확인 (indexOf > -1 or includes)
-            if (selectedIndices.indexOf(i) !== -1) {
-                newClass = "bg-blue";
-            } else if (i === 0) {
-                newClass = "bg-yellow";
-            } else if (i === total - 1) {
-                newClass = "bg-green";
+        // 드래그 시 원래 위치 기억용
+        var dragStartPos = null;
+
+        function initMap() {
+            map = new naver.maps.Map('map', {
+                center: new naver.maps.LatLng(37.057202, 127.048285),
+                zoom: 12
+            });
+        }
+
+        // [C# 호출용] 데이터 렌더링
+        function renderAllMarkers(dataList) {
+            // 1. 기존 마커 초기화
+            clearAllMarkers();
+
+            // 2. 새 마커 생성
+            for (var i = 0; i < dataList.length; i++) {
+                var data = dataList[i];
+                _createMarkerInternal(data.lat, data.lng, data.index, data.tooltip);
             }
 
-            var newHtml = iconContent.replace(/class="marker-pin [^"]*"/, 'class="marker-pin ' + newClass + '"');
+            // 3. 선 그리기
+            drawConnectors();
             
-            marker.setIcon({
-                content: newHtml,
-                size: new naver.maps.Size(30, 30),
-                anchor: new naver.maps.Point(15, 15)
+            // 4. 색상 적용 (초기화 직후라 선택 상태 등 반영)
+            updateMarkerVisuals();
+        }
+
+        // [C# 호출용] 선택된 인덱스 리스트 업데이트 (예: [0, 2, 5])
+        function setMarkerSelectionList(indices) {
+            selectedIndices = indices; // 배열 교체
+            updateMarkerVisuals();     // 색상 갱신
+        }
+
+        // 마커 색상 및 스타일 일괄 업데이트 함수
+        function updateMarkerVisuals() {
+            var total = markers.length;
+
+            for (var i = 0; i < total; i++) {
+                var marker = markers[i];
+                var iconContent = marker.getIcon().content;
+                
+                // 우선순위: 선택됨(파랑) > 시작점(노랑) > 도착점(초록) > 기본(빨강)
+                var newClass = "bg-red"; 
+
+                // 배열에 포함되어 있는지 확인 (다중 선택)
+                if (selectedIndices.indexOf(i) !== -1) {
+                    newClass = "bg-blue";
+                } else if (i === 0) {
+                    newClass = "bg-yellow";
+                } else if (i === total - 1) {
+                    newClass = "bg-green";
+                }
+
+                // 기존 HTML의 class 부분을 새 클래스로 교체 (정규식 사용)
+                var newHtml = iconContent.replace(/class="marker-pin [^"]*"/, 'class="marker-pin ' + newClass + '"');
+                
+                // 아이콘 업데이트
+                marker.setIcon({
+                    content: newHtml,
+                    size: new naver.maps.Size(30, 30),
+                    anchor: new naver.maps.Point(15, 15)
+                });
+
+                // 선택된 마커는 다른 마커보다 위에 보이도록 z-index 조절
+                marker.setZIndex(selectedIndices.indexOf(i) !== -1 ? 10000 : 100);
+            }
+        }
+
+        // 내부 마커 생성 로직
+        function _createMarkerInternal(lat, lng, gridIndex, tooltip) {
+            var displayNum = gridIndex + 1;
+            // 생성 시점엔 기본 색상(빨강)으로 생성, 직후 updateMarkerVisuals에 의해 색상 결정됨
+            var contentHtml = '<div class="marker-pin bg-red" title="' + tooltip + '">' + displayNum + '</div>';
+
+            var marker = new naver.maps.Marker({
+                position: new naver.maps.LatLng(lat, lng),
+                map: map,
+                draggable: true,
+                icon: {
+                    content: contentHtml,
+                    size: new naver.maps.Size(30, 30),
+                    anchor: new naver.maps.Point(15, 15)
+                }
             });
 
-            // 선택된 녀석들은 z-index 높임
-            marker.setZIndex(selectedIndices.indexOf(i) !== -1 ? 10000 : 100);
-        }
-    }
+            marker.set('gridIndex', gridIndex);
 
-    function _createMarkerInternal(lat, lng, gridIndex, tooltip) {
-        var displayNum = gridIndex + 1;
-        var contentHtml = '<div class="marker-pin bg-red" title="' + tooltip + '">' + displayNum + '</div>';
+            // 1. 클릭 이벤트: Shift 키 감지하여 C#으로 전송
+            naver.maps.Event.addListener(marker, 'click', function(e) {
+                // 네이버 지도 이벤트 객체에서 원본 DOM/Pointer 이벤트 추출
+                var domEvent = e.domEvent || e.pointerEvent; 
+                var isShift = domEvent ? domEvent.shiftKey : false;
 
-        var marker = new naver.maps.Marker({
-            position: new naver.maps.LatLng(lat, lng),
-            map: map,
-            draggable: true,
-            icon: {
-                content: contentHtml,
-                size: new naver.maps.Size(30, 30),
-                anchor: new naver.maps.Point(15, 15)
-            }
-        });
-
-        marker.set('gridIndex', gridIndex);
-
-        // [핵심 변경] 클릭 시 Shift 키 상태 감지하여 전송
-        naver.maps.Event.addListener(marker, 'click', function(e) {
-            // 네이버 지도 API 이벤트 객체에서 DOM 이벤트 추출
-            var domEvent = e.domEvent || e.pointerEvent; 
-            var isShift = domEvent ? domEvent.shiftKey : false;
-
-            if (window.chrome && window.chrome.webview) {
-                // 형식: markerClick:인덱스:쉬프트눌림여부(true/false)
-                window.chrome.webview.postMessage("markerClick:" + gridIndex + ":" + isShift);
-            }
-        });
-
-        // 드래그 시작/종료 로직은 기존 유지
-        naver.maps.Event.addListener(marker, 'dragstart', function(e) {
-            dragStartPos = marker.getPosition();
-            marker.setZIndex(10000);
-        });
-
-        naver.maps.Event.addListener(marker, 'dragend', function(e) {
-            var droppedCoord = e.coord;
-            var fromIndex = marker.get('gridIndex');
-            var targetIndex = -1;
-            var projection = map.getProjection();
-            var droppedPoint = projection.fromCoordToOffset(droppedCoord);
-
-            for (var i = 0; i < markers.length; i++) {
-                var otherMarker = markers[i];
-                var otherIndex = otherMarker.get('gridIndex');
-                if (fromIndex === otherIndex) continue;
-
-                var otherPoint = projection.fromCoordToOffset(otherMarker.getPosition());
-                var dist = Math.sqrt(Math.pow(droppedPoint.x - otherPoint.x, 2) + Math.pow(droppedPoint.y - otherPoint.y, 2));
-
-                if (dist < 40) {
-                    targetIndex = otherIndex;
-                    break;
-                }
-            }
-
-            marker.setPosition(dragStartPos); 
-            
-            if (targetIndex !== -1) {
                 if (window.chrome && window.chrome.webview) {
-                    window.chrome.webview.postMessage("reorder:" + fromIndex + ":" + targetIndex);
+                    // 메시지 형식: "markerClick:인덱스:쉬프트여부"
+                    window.chrome.webview.postMessage("markerClick:" + gridIndex + ":" + isShift);
                 }
-            }
-        });
-
-        markers.push(marker);
-    }
-
-    // ... drawConnectors, clearAllMarkers 등 나머지 함수는 그대로 유지 ...
-    function drawConnectors() {
-        for (var i = 0; i < polylines.length; i++) polylines[i].setMap(null);
-        polylines = [];
-        if (markers.length < 2) return;
-        for (var i = 0; i < markers.length - 1; i++) {
-            var start = markers[i].getPosition();
-            var end = markers[i + 1].getPosition();
-            var polyline = new naver.maps.Polyline({
-                map: map, path: [start, end], strokeColor: '#FF0000', strokeWeight: 4, strokeOpacity: 0.8,
-                endIcon: naver.maps.PointingIcon.OPEN_ARROW, endIconSize: 20
             });
-            polylines.push(polyline);
+
+            // 2. 드래그 시작
+            naver.maps.Event.addListener(marker, 'dragstart', function(e) {
+                dragStartPos = marker.getPosition();
+                marker.setZIndex(10000); // 드래그 중인 건 맨 위로
+            });
+
+            // 3. 드래그 종료 (순서 변경 요청)
+            naver.maps.Event.addListener(marker, 'dragend', function(e) {
+                var droppedCoord = e.coord;
+                var fromIndex = marker.get('gridIndex');
+                var targetIndex = -1;
+
+                var projection = map.getProjection();
+                var droppedPoint = projection.fromCoordToOffset(droppedCoord);
+
+                // 다른 마커들과의 거리 체크
+                for (var i = 0; i < markers.length; i++) {
+                    var otherMarker = markers[i];
+                    var otherIndex = otherMarker.get('gridIndex');
+
+                    if (fromIndex === otherIndex) continue;
+
+                    var otherPoint = projection.fromCoordToOffset(otherMarker.getPosition());
+                    
+                    var dist = Math.sqrt(
+                        Math.pow(droppedPoint.x - otherPoint.x, 2) + 
+                        Math.pow(droppedPoint.y - otherPoint.y, 2)
+                    );
+
+                    // 40픽셀 이내 접근 시 타겟으로 인정
+                    if (dist < 40) {
+                        targetIndex = otherIndex;
+                        break;
+                    }
+                }
+
+                // 일단 원래 위치로 복귀 (데이터 변경 후 재렌더링 되므로)
+                marker.setPosition(dragStartPos);
+                
+                // 유효한 타겟에 드롭했다면 C#으로 변경 요청
+                if (targetIndex !== -1) {
+                    if (window.chrome && window.chrome.webview) {
+                        window.chrome.webview.postMessage("reorder:" + fromIndex + ":" + targetIndex);
+                    }
+                }
+            });
+
+            markers.push(marker);
         }
-    }
 
-    function clearAllMarkers() {
-        for (var i = 0; i < markers.length; i++) markers[i].setMap(null);
-        markers = [];
-        for (var j = 0; j < polylines.length; j++) polylines[j].setMap(null);
-        polylines = [];
-        selectedIndices = []; // 초기화 시 선택 목록도 비움
-    }
+        // 화살표 선 그리기
+        function drawConnectors() {
+            // 기존 선 삭제
+            for (var i = 0; i < polylines.length; i++) {
+                polylines[i].setMap(null);
+            }
+            polylines = [];
 
-    initMap();
-</script>
+            if (markers.length < 2) return;
+
+            // 순서대로 선 연결
+            for (var i = 0; i < markers.length - 1; i++) {
+                var start = markers[i].getPosition();
+                var end = markers[i + 1].getPosition();
+
+                var polyline = new naver.maps.Polyline({
+                    map: map,
+                    path: [start, end],
+                    strokeColor: '#FF0000',
+                    strokeWeight: 4,
+                    strokeOpacity: 0.8,
+                    endIcon: naver.maps.PointingIcon.OPEN_ARROW,
+                    endIconSize: 20
+                });
+
+                polylines.push(polyline);
+            }
+        }
+
+        // 전체 초기화 (마커, 선, 선택 상태 삭제)
+        function clearAllMarkers() {
+            for (var i = 0; i < markers.length; i++) {
+                markers[i].setMap(null);
+            }
+            markers = [];
+            for (var j = 0; j < polylines.length; j++) {
+                polylines[j].setMap(null);
+            }
+            polylines = [];
+            selectedIndices = []; // 선택 상태도 초기화
+        }
+
+        // 구형 호환성 함수 (필요 시)
+        function addMarker(lat, lng, gridIndex, tooltip) {
+            _createMarkerInternal(lat, lng, gridIndex, tooltip);
+        }
+
+        initMap();
+    </script>
+</body>
+</html>
