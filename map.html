@@ -8,6 +8,7 @@
         body, html { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
         #map { width: 100%; height: 100%; }
         
+        /* 마커 스타일 */
         .marker-pin {
             width: 30px;
             height: 30px;
@@ -21,13 +22,13 @@
             font-weight: bold;
             font-family: Arial, sans-serif;
             font-size: 14px;
-            cursor: pointer; /* 손가락 모양 */
+            cursor: pointer;
             transition: transform 0.1s;
         }
-        /* 드래그 중일 때 시각적 효과 */
+        /* 드래그 중이거나 눌렀을 때 효과 */
         .marker-pin:active {
             transform: scale(1.2);
-            background: #FF6600; /* 주황색으로 변경 */
+            background: #FF6600;
         }
         .marker-pin:hover {
             z-index: 999;
@@ -42,8 +43,8 @@
         var markers = []; 
         var polylines = [];
         
-        // 드래그 로직용 변수
-        var dragStartPos = null; // 원래 위치 기억용
+        // 드래그 시 원래 위치 기억용 변수
+        var dragStartPos = null;
 
         function initMap() {
             map = new naver.maps.Map('map', {
@@ -52,14 +53,30 @@
             });
         }
 
-        function addMarker(lat, lng, gridIndex, tooltip) {
+        // [핵심 변경] 데이터를 한 번에 받아 일괄 렌더링 (크래시 방지용)
+        function renderAllMarkers(dataList) {
+            // 1. 기존 마커 및 선 모두 제거
+            clearAllMarkers();
+
+            // 2. 전달받은 리스트를 순회하며 마커 생성
+            for (var i = 0; i < dataList.length; i++) {
+                var data = dataList[i];
+                _createMarkerInternal(data.lat, data.lng, data.index, data.tooltip);
+            }
+
+            // 3. 마커 배치가 끝난 후 선 그리기
+            drawConnectors();
+        }
+
+        // 내부 마커 생성 로직 (드래그 이벤트 포함)
+        function _createMarkerInternal(lat, lng, gridIndex, tooltip) {
             var displayNum = gridIndex + 1;
             var contentHtml = '<div class="marker-pin" title="' + tooltip + '">' + displayNum + '</div>';
 
             var marker = new naver.maps.Marker({
                 position: new naver.maps.LatLng(lat, lng),
                 map: map,
-                draggable: true, // [중요] 드래그 가능하게 설정
+                draggable: true, // 드래그 활성화
                 icon: {
                     content: contentHtml,
                     size: new naver.maps.Size(30, 30),
@@ -67,34 +84,32 @@
                 }
             });
 
-            // 추가 정보를 마커 객체에 심어둡니다 (인덱스 식별용)
+            // 마커 객체에 인덱스 정보 저장
             marker.set('gridIndex', gridIndex);
 
-            // 1. 클릭 시 그리드 선택 (기존 기능)
+            // 1. 클릭 이벤트: 그리드 행 선택
             naver.maps.Event.addListener(marker, 'click', function(e) {
                 if (window.chrome && window.chrome.webview) {
                     window.chrome.webview.postMessage("select:" + gridIndex);
                 }
             });
 
-            // 2. 드래그 시작: 원래 위치 저장 (취소되거나 이동 후 복귀를 위해)
+            // 2. 드래그 시작: 원래 위치 저장 & 맨 위로 표시
             naver.maps.Event.addListener(marker, 'dragstart', function(e) {
                 dragStartPos = marker.getPosition();
-                // 드래그 중인 마커를 맨 위로 올림
                 marker.setZIndex(10000);
             });
 
-            // 3. 드래그 종료: 충돌 감지 로직
+            // 3. 드래그 종료: 충돌 감지 및 순서 변경 요청
             naver.maps.Event.addListener(marker, 'dragend', function(e) {
-                var droppedCoord = e.coord; // 드롭된 위치 (위경도)
+                var droppedCoord = e.coord;
                 var fromIndex = marker.get('gridIndex');
                 var targetIndex = -1;
 
-                // 화면 좌표계로 변환 (픽셀 단위 거리 계산을 위해)
+                // 화면 좌표(Pixel)로 변환하여 거리 계산
                 var projection = map.getProjection();
                 var droppedPoint = projection.fromCoordToOffset(droppedCoord);
 
-                // 다른 모든 마커와의 거리 검사
                 for (var i = 0; i < markers.length; i++) {
                     var otherMarker = markers[i];
                     var otherIndex = otherMarker.get('gridIndex');
@@ -102,43 +117,48 @@
                     // 자기 자신은 제외
                     if (fromIndex === otherIndex) continue;
 
-                    // 대상 마커의 화면 위치
                     var otherPoint = projection.fromCoordToOffset(otherMarker.getPosition());
-
-                    // 거리 계산 (피타고라스)
+                    
+                    // 피타고라스 거리 계산
                     var dist = Math.sqrt(
                         Math.pow(droppedPoint.x - otherPoint.x, 2) + 
                         Math.pow(droppedPoint.y - otherPoint.y, 2)
                     );
 
-                    // 40픽셀 이내면 "올려놓았다"고 판단
+                    // 40픽셀 이내로 접근하면 타겟으로 인식
                     if (dist < 40) {
                         targetIndex = otherIndex;
                         break;
                     }
                 }
 
-                // 시각적으로는 일단 원래 위치로 되돌림 (데이터 갱신 후 다시 그려질 것이므로)
+                // 시각적으로는 일단 원래 위치로 복귀 (C#에서 데이터 갱신 후 다시 그려짐)
                 marker.setPosition(dragStartPos);
-                marker.setZIndex(100); // Z-Index 초기화
+                marker.setZIndex(100);
 
+                // 유효한 타겟 위에 드롭했으면 C#으로 변경 요청 전송
                 if (targetIndex !== -1) {
-                    // 유효한 타겟 위에 드롭했으면 C#으로 요청 전송
                     if (window.chrome && window.chrome.webview) {
-                        // 형식: "reorder:출발인덱스:도착인덱스"
                         window.chrome.webview.postMessage("reorder:" + fromIndex + ":" + targetIndex);
                     }
                 }
             });
 
             markers.push(marker);
-            
+        }
+
+        // [구형 호환성] 단일 마커 추가 함수 (기존 코드나 테스트용)
+        function addMarker(lat, lng, gridIndex, tooltip) {
+            _createMarkerInternal(lat, lng, gridIndex, tooltip);
+            // 첫 번째 마커라면 지도 중심 이동
             if (markers.length === 1) {
                 map.setCenter(new naver.maps.LatLng(lat, lng));
             }
         }
 
+        // 화살표 선 그리기
         function drawConnectors() {
+            // 기존 선 삭제
             for (var i = 0; i < polylines.length; i++) {
                 polylines[i].setMap(null);
             }
@@ -146,6 +166,7 @@
 
             if (markers.length < 2) return;
 
+            // 순서대로 선 연결
             for (var i = 0; i < markers.length - 1; i++) {
                 var start = markers[i].getPosition();
                 var end = markers[i + 1].getPosition();
@@ -165,6 +186,7 @@
             }
         }
 
+        // 초기화 (마커 및 선 모두 제거)
         function clearAllMarkers() {
             for (var i = 0; i < markers.length; i++) {
                 markers[i].setMap(null);
